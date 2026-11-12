@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Voo Aconchego</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#231c2e;--fg:#fff1d6;--pill:rgba(35,28,46,.62);box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html,body{height:100%;margin:0;background:var(--bg);overflow:hidden;touch-action:none;color:var(--fg);font-family:'Press Start 2P',ui-monospace,Menlo,monospace}
+body{display:grid;place-items:center}
+canvas{image-rendering:pixelated;image-rendering:crisp-edges;display:block}
+.hud{position:fixed;left:12px;top:calc(env(safe-area-inset-top,0px) + 10px);background:var(--pill);padding:8px 10px;font-size:9px;line-height:1.7;border-radius:6px;pointer-events:none}
+.hint{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 10px);text-align:center;font-size:8px;opacity:.75;pointer-events:none;transition:opacity 2s}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud" id="hud"></div>
+<div class="hint" id="hint">← → ou toque na tela para virar · ↑ ↓ para a velocidade</div>
+<script>
+const W=320,H=180,cv=document.getElementById('c'),ctx=cv.getContext('2d');
+cv.width=W;cv.height=H;
+function fit(){const s=Math.min(innerWidth/W,innerHeight/H);cv.style.width=W*s+'px';cv.style.height=H*s+'px'}
+addEventListener('resize',fit);fit();
+const img=ctx.createImageData(W,H),D=img.data;
+
+function h2(x,y){let n=Math.imul(x|0,374761393)+Math.imul(y|0,668265263);n=Math.imul(n^(n>>>13),1274126177);return((n^(n>>>16))>>>0)/4294967296}
+function vn(x,y){const xi=Math.floor(x),yi=Math.floor(y),xf=x-xi,yf=y-yi,u=xf*xf*(3-2*xf),v=yf*yf*(3-2*yf);
+ const a=h2(xi,yi),b=h2(xi+1,yi),c=h2(xi,yi+1),d=h2(xi+1,yi+1);return a+(b-a)*u+(c-a)*v+(a-b-c+d)*u*v}
+const hgt=(x,y)=>vn(x/90,y/90)*.55+vn(x/40+50,y/40)*.3+vn(x/16,y/16+9)*.15;
+
+const LO=[.15,.42,.47,.49,.60,.67,.73];
+const B=[[.42,[40,70,130],[52,92,150]],[.47,[72,130,180],[104,170,205]],[.49,[236,214,160],[246,230,185]],
+ [.60,[128,184,96],[150,204,108]],[.67,[84,142,84],[100,160,92]],[.73,[150,140,135],[178,168,160]],[2,[236,236,245],[255,255,255]]];
+const BY=[0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5];
+
+const P={x:0,y:0,a:-.6,v:60,tu:0};
+const keys={};let ptr=null,T=0,trail=[],tAcc=0,ph=1.0;
+addEventListener('keydown',e=>{keys[e.key.toLowerCase()]=1;hideHint()});
+addEventListener('keyup',e=>keys[e.key.toLowerCase()]=0);
+addEventListener('pointerdown',e=>{ptr=[e.clientX,e.clientY];hideHint()});
+addEventListener('pointermove',e=>{if(ptr)ptr=[e.clientX,e.clientY]});
+addEventListener('pointerup',()=>ptr=null);
+function hideHint(){document.getElementById('hint').style.opacity=0}
+
+const lerp=(a,b,t)=>a+(b-a)*t, mix=(p,q,t)=>[lerp(p[0],q[0],t),lerp(p[1],q[1],t),lerp(p[2],q[2],t)];
+function tint(){const s=Math.sin(ph),N=[85,95,165],Du=[255,178,142],Dy=[255,252,245];
+ return s<-.15?N:s<.1?mix(N,Du,(s+.15)/.25):s<.35?mix(Du,Dy,(s-.1)/.25):Dy}
+
+const PL=[];
+for(let i=-5;i<=5;i++)PL.push([i,0,[255,244,220]]);
+PL.push([-4,-1,[255,244,220]],[-4,1,[255,244,220]],[1,0,[110,170,220]],[2,0,[110,170,220]],[6,0,[214,84,76]],
+ [-5,-1,[214,84,76]],[-5,1,[214,84,76]],[-5,-2,[214,84,76]],[-5,2,[214,84,76]]);
+for(let j=-6;j<=6;j++)if(j){const c=Math.abs(j)>=5?[255,244,220]:[214,84,76];PL.push([0,j,c],[1,j,c])}
+
+function drawPlane(){
+ const ca=Math.cos(P.a),sa=Math.sin(P.a),wb=1-.35*Math.abs(P.tu);
+ for(const sh of [1,0]){
+  for(const [dx,dy,c] of PL){
+   const y=Math.abs(dy)>1&&dx>=0?dy*wb:dy;
+   const rx=dx*ca-y*sa,ry=dx*sa+y*ca;
+   ctx.fillStyle=sh?'rgba(20,20,40,.28)':`rgb(${c})`;
+   ctx.fillRect(Math.round(160+rx)+(sh?4:0),Math.round(90+ry)+(sh?7:0),1,1);
+  }
+ }
+ const f=(T*30|0)%2?1:-1,px=7*ca-f*sa,py=7*sa+f*ca;
+ ctx.fillStyle='rgba(255,255,255,.8)';
+ ctx.fillRect(Math.round(160+px),Math.round(90+py),1,1);
+ ctx.fillRect(Math.round(160-px*.6+3*ca),Math.round(90-py*.6+3*sa),1,1);
+}
+
+function frame(now){
+ const dt=Math.min(.05,(now-(frame.t||now))/1000);frame.t=now;T+=dt;ph+=dt*.035;
+ let turn=(keys.arrowright||keys.d?1:0)-(keys.arrowleft||keys.a?1:0);
+ if(ptr){const r=cv.getBoundingClientRect();let d=Math.atan2(ptr[1]-(r.top+r.height/2),ptr[0]-(r.left+r.width/2))-P.a;
+  d=Math.atan2(Math.sin(d),Math.cos(d));turn=Math.max(-1,Math.min(1,d*2))}
+ P.tu=lerp(P.tu,turn,Math.min(1,dt*6));P.a+=P.tu*1.7*dt;
+ const dv=(keys.arrowup||keys.w?1:0)-(keys.arrowdown||keys.s?1:0);
+ P.v=Math.max(30,Math.min(110,P.v+dv*50*dt));
+ P.x+=Math.cos(P.a)*P.v*dt;P.y+=Math.sin(P.a)*P.v*dt;
+ tAcc+=dt;if(tAcc>.06){tAcc=0;trail.push({x:P.x-Math.cos(P.a)*6,y:P.y-Math.sin(P.a)*6,l:1.6});}
+ trail=trail.filter(p=>(p.l-=dt)>0);
+
+ const cx=Math.floor(P.x),cy=Math.floor(P.y);
+ for(let py=0;py<H;py++)for(let px=0;px<W;px++){
+  const wx=cx-160+px,wy=cy-90+py,h=hgt(wx,wy);
+  let bi=0;while(bi<6&&h>=B[bi][0])bi++;
+  const lo=LO[bi],t=(h-lo)/(Math.min(B[bi][0],.78)-lo);
+  const c=(t+(BY[(px&3)+((py&3)<<2)]/16-.5)*.7>.5)?B[bi][2]:B[bi][1];
+  let r=c[0],g=c[1],b=c[2];
+  if(bi<2){if(vn(wx/5+T*.6,wy/1.5)>.8){r+=28;g+=28;b+=22}if(h2(wx+(T*3|0),wy)>.996)r=g=b=255}
+  const kx=wx+cx*.25+T*6,ky=wy+cy*.25;
+  const nc=vn(kx/28,ky/28)*.65+vn(kx/11+30,ky/11)*.35;
+  if(nc>.64){const w=nc>.72?1:.55;r=lerp(r,250,w);g=lerp(g,250,w);b=lerp(b,255,w)}
+  else{const ns=vn((kx-7)/28,(ky-8)/28)*.65+vn((kx-7)/11+30,(ky-8)/11)*.35;if(ns>.64){r*=.82;g*=.82;b*=.86}}
+  const i=(py*W+px)*4;D[i]=r;D[i+1]=g;D[i+2]=b;D[i+3]=255;
+ }
+ ctx.putImageData(img,0,0);
+
+ const S=7,ox=cx-160,oy=cy-90;
+ for(let gy=Math.floor(oy/S)-1;gy<=Math.ceil((oy+H)/S);gy++)for(let gx=Math.floor(ox/S)-1;gx<=Math.ceil((ox+W)/S);gx++){
+  const r=h2(gx,gy);if(r<.3)continue;
+  const h=hgt(gx*S+3,gy*S+3),sx=gx*S+((h2(gx+7,gy)*3)|0)-ox+1,sy=gy*S+((h2(gx,gy+7)*3)|0)-oy+3;
+  if(h>=.49&&h<.60){
+   if(r>.985){ctx.fillStyle='#f0e1c8';ctx.fillRect(sx,sy,5,3);ctx.fillStyle='#c85a50';ctx.fillRect(sx-1,sy-2,7,2);ctx.fillStyle='#6e503c';ctx.fillRect(sx+2,sy+1,1,2)}
+   else if(r>.93)tree(sx,sy,'#4f8a4f','#7fba62');
+  }else if(h>=.60&&h<.67){if(r>.4)tree(sx,sy,'#3d7040','#68a35a')}
+  else if(h>=.67&&h<.73&&r>.8)pine(sx,sy);
+ }
+ function tree(x,y,d,l){ctx.fillStyle='rgba(20,30,20,.22)';ctx.fillRect(x+1,y+1,4,1);ctx.fillStyle='#6a4a32';ctx.fillRect(x+1,y,1,1);ctx.fillStyle=d;ctx.fillRect(x,y-3,3,3);ctx.fillStyle=l;ctx.fillRect(x,y-3,2,1)}
+ function pine(x,y){ctx.fillStyle='#2f5a55';ctx.fillRect(x+1,y-4,1,1);ctx.fillRect(x,y-3,3,1);ctx.fillRect(x-1,y-2,5,1);ctx.fillStyle='#5a4030';ctx.fillRect(x+1,y-1,1,1)}
+
+ for(const p of trail){const a=p.l/1.6,s=a<.5?2:1;ctx.fillStyle=`rgba(255,250,240,${a*.75})`;
+  ctx.fillRect(Math.round(p.x-cx+160),Math.round(p.y-cy+90),s,s)}
+ drawPlane();
+
+ const tn=tint();ctx.globalCompositeOperation='multiply';ctx.fillStyle=`rgb(${tn})`;ctx.fillRect(0,0,W,H);ctx.globalCompositeOperation='source-over';
+
+ if((T*5|0)!==frame.hud){frame.hud=T*5|0;const hr=(6+ph/(2*Math.PI)*24)%24;
+  document.getElementById('hud').innerHTML=`${String(hr|0).padStart(2,'0')}:${String((hr%1)*60|0).padStart(2,'0')}<br>${Math.round(P.v)} nós<br>x ${cx} y ${cy}`}
+ requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

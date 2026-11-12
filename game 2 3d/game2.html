@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Voo Aconchego 3D</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#231c2e;--fg:#fff1d6;--pill:rgba(35,28,46,.62)}
+html,body{height:100%;margin:0;background:var(--bg);overflow:hidden;touch-action:none;color:var(--fg);font-family:'Press Start 2P',ui-monospace,Menlo,monospace}
+canvas{position:fixed;inset:0;width:100%;height:100%;image-rendering:pixelated;image-rendering:crisp-edges;display:block}
+.hud{position:fixed;left:12px;top:calc(env(safe-area-inset-top,0px) + 10px);background:var(--pill);padding:8px 10px;font-size:9px;line-height:1.7;border-radius:6px;pointer-events:none}
+.hint{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 10px);text-align:center;font-size:8px;opacity:.8;pointer-events:none;transition:opacity 2s}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud" id="hud"></div>
+<div class="hint" id="hint">← → ou toque na tela para virar · ↑ ↓ sobem e descem</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+if(!window.THREE){document.body.textContent='Não foi possível carregar o three.js.'}
+else{
+const cv=document.getElementById('c');
+const R=new THREE.WebGLRenderer({canvas:cv,antialias:false});
+const scene=new THREE.Scene(),cam=new THREE.PerspectiveCamera(62,1,.5,260);
+scene.fog=new THREE.Fog(0xa5d2eb,50,150);
+function size(){const ps=Math.max(2,Math.round(innerHeight/200));R.setSize(Math.ceil(innerWidth/ps),Math.ceil(innerHeight/ps),false);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix()}
+addEventListener('resize',size);size();
+
+function h2(x,y){let n=Math.imul(x|0,374761393)+Math.imul(y|0,668265263);n=Math.imul(n^(n>>>13),1274126177);return((n^(n>>>16))>>>0)/4294967296}
+function vn(x,y){const xi=Math.floor(x),yi=Math.floor(y),xf=x-xi,yf=y-yi,u=xf*xf*(3-2*xf),v=yf*yf*(3-2*yf);
+ const a=h2(xi,yi),b=h2(xi+1,yi),c=h2(xi,yi+1),d=h2(xi+1,yi+1);return a+(b-a)*u+(c-a)*v+(a-b-c+d)*u*v}
+const hgt=(x,y)=>vn(x/90,y/90)*.55+vn(x/40+50,y/40)*.3+vn(x/16,y/16+9)*.15;
+const hy=h=>h<.47?0:Math.pow(Math.min(1,(h-.47)/.31),1.6)*140;
+const ground=(x,z)=>hy(hgt(x,z));
+const LO=[.15,.42,.47,.49,.60,.67,.73];
+const B=[[.42,[40,70,130],[52,92,150]],[.47,[72,130,180],[104,170,205]],[.49,[236,214,160],[246,230,185]],
+ [.60,[128,184,96],[150,204,108]],[.67,[84,142,84],[100,160,92]],[.73,[150,140,135],[178,168,160]],[2,[236,236,245],[255,255,255]]];
+function bc(h,k,l){let bi=0;while(bi<6&&h>=B[bi][0])bi++;const lo=LO[bi],t=(h-lo)/(Math.min(B[bi][0],.78)-lo);
+ return(t+(h2(k,l)-.5)*.6>.5)?B[bi][2]:B[bi][1]}
+
+// terreno
+const CELL=2.4,N=140,SZ=CELL*N;
+const geo=new THREE.PlaneGeometry(SZ,SZ,N,N);geo.rotateX(-Math.PI/2);
+const pos=geo.attributes.position;
+geo.setAttribute('color',new THREE.BufferAttribute(new Float32Array(pos.count*3),3));
+const col=geo.attributes.color;
+const terrain=new THREE.Mesh(geo,new THREE.MeshPhongMaterial({vertexColors:true,flatShading:true,shininess:0}));
+terrain.frustumCulled=false;scene.add(terrain);
+
+// árvores e casas
+const TM=new THREE.InstancedMesh(new THREE.ConeGeometry(1.7,5.5,5).translate(0,2.75,0),new THREE.MeshPhongMaterial({flatShading:true,shininess:0}),1100);
+const HM=new THREE.InstancedMesh(new THREE.BoxGeometry(3.2,2.4,3.2).translate(0,1.2,0),new THREE.MeshPhongMaterial({color:0xf0e1c8,flatShading:true,shininess:0}),140);
+const RM=new THREE.InstancedMesh(new THREE.ConeGeometry(2.9,1.8,4).rotateY(Math.PI/4).translate(0,3.3,0),new THREE.MeshPhongMaterial({color:0xc85a50,flatShading:true,shininess:0}),140);
+[TM,HM,RM].forEach(m=>{m.frustumCulled=false;scene.add(m)});
+const dm=new THREE.Object3D(),cc=new THREE.Color();
+function plant(cx,cz){
+ const S=8,Rr=130;let nt=0,nh=0;
+ for(let gx=Math.floor((cx-Rr)/S);gx<=Math.floor((cx+Rr)/S);gx++)for(let gz=Math.floor((cz-Rr)/S);gz<=Math.floor((cz+Rr)/S);gz++){
+  const r=h2(gx,gz);if(r<.3)continue;
+  const wx=gx*S+h2(gx+7,gz)*S,wz=gz*S+h2(gx,gz+7)*S,h=hgt(wx,wz),y=hy(h);
+  let kind=0;
+  if(h>=.49&&h<.60)kind=r>.985?2:r>.93?1:0;
+  else if(h>=.60&&h<.67)kind=r>.45?1:0;
+  else if(h>=.67&&h<.73)kind=r>.8?3:0;
+  if(!kind)continue;
+  dm.position.set(wx,y,wz);dm.rotation.set(0,h2(gx,gz+3)*6.28,0);
+  if(kind===2){if(nh>=140)continue;dm.scale.set(1,1,1);dm.updateMatrix();HM.setMatrixAt(nh,dm.matrix);RM.setMatrixAt(nh,dm.matrix);nh++}
+  else{if(nt>=1100)continue;const s=.8+h2(gx+1,gz+1)*.7;dm.scale.set(s,s*(kind===3?1.4:1),s);dm.updateMatrix();TM.setMatrixAt(nt,dm.matrix);
+   const v=h2(gx+9,gz+9)*.12;if(kind===3)cc.setRGB(.2+v,.36+v,.34+v);else if(h<.60)cc.setRGB(.3+v,.55+v,.3+v);else cc.setRGB(.2+v,.44+v,.26+v);
+   TM.setColorAt(nt,cc);nt++}
+ }
+ TM.count=nt;HM.count=RM.count=nh;
+ TM.instanceMatrix.needsUpdate=HM.instanceMatrix.needsUpdate=RM.instanceMatrix.needsUpdate=true;if(TM.instanceColor)TM.instanceColor.needsUpdate=true;
+}
+const WM=new Uint8Array(pos.count),WX=new Float32Array(pos.count),WZ=new Float32Array(pos.count),BC=new Float32Array(pos.count*3);
+let lcx=1e9,lcz=1e9;
+function rebuild(cx,cz){
+ terrain.position.set(cx,0,cz);
+ for(let i=0;i<pos.count;i++){const wx=pos.getX(i)+cx,wz=pos.getZ(i)+cz,h=hgt(wx,wz);
+  pos.setY(i,hy(h));WM[i]=h<.47?1:0;WX[i]=wx;WZ[i]=wz;const c=bc(h,Math.round(wx/CELL),Math.round(wz/CELL));BC[i*3]=c[0]/255;BC[i*3+1]=c[1]/255;BC[i*3+2]=c[2]/255;col.setXYZ(i,BC[i*3],BC[i*3+1],BC[i*3+2])}
+ pos.needsUpdate=true;col.needsUpdate=true;plant(cx,cz);
+}
+
+// nuvens
+const clouds=[],cmat=new THREE.MeshPhongMaterial({color:0xffffff,emissive:0x404050,flatShading:true,shininess:0});
+for(let i=0;i<30;i++){const g=new THREE.Group(),n=3+(h2(i,5)*3|0);
+ for(let j=0;j<n;j++){const m=new THREE.Mesh(new THREE.IcosahedronGeometry(4+h2(i,j)*4,0),cmat);m.position.set(j*5-n*2.5,h2(j,i)*2,h2(i+3,j)*4);m.scale.y=.55;g.add(m)}
+ g.userData={x:(h2(i,1)-.5)*340,z:(h2(i,2)-.5)*340,y:40+h2(i,3)*90};scene.add(g);clouds.push(g)}
+const mod=(a,m)=>((a%m)+m)%m;
+
+// luzes
+const hemi=new THREE.HemisphereLight(0xffffff,0x6b5a4a,.8),sun=new THREE.DirectionalLight(0xfff4dc,1);
+scene.add(hemi,sun);
+
+// avião
+const plane=new THREE.Group();plane.rotation.order='YXZ';
+const bx=(w,h,d,c,x,y,z,p)=>{const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),new THREE.MeshPhongMaterial({color:c,flatShading:true,shininess:0}));m.position.set(x,y,z);(p||plane).add(m);return m};
+bx(1,1,5.5,0xfff4dc,0,0,0);bx(1.1,1.1,.9,0xd6544c,0,0,-3);bx(9,.25,1.7,0xd6544c,0,0,-.3);
+bx(1.4,.26,1.7,0xfff4dc,0,.01,-.3);bx(3.2,.2,.9,0xd6544c,0,0,2.6);bx(.2,1.3,1,0xfff4dc,0,.8,2.6);bx(.8,.5,1.2,0x6eaadc,0,.65,-.5);
+const prop=new THREE.Group();prop.position.z=-3.6;plane.add(prop);bx(.15,2.8,.1,0x6a4a32,0,0,0,prop);
+scene.add(plane);
+const sh=new THREE.Mesh(new THREE.CircleGeometry(2.6,8).rotateX(-Math.PI/2),new THREE.MeshBasicMaterial({color:0x101020,transparent:true,opacity:.3,depthWrite:false}));scene.add(sh);
+
+// estado e controles
+const P={x:0,y:70,z:0,yaw:0,pitch:0,roll:0,tu:0};let ptr=null,T=0,ph=1.0;
+const keys={};
+addEventListener('keydown',e=>{keys[e.key.toLowerCase()]=1;hide()});addEventListener('keyup',e=>keys[e.key.toLowerCase()]=0);
+addEventListener('pointerdown',e=>{ptr=[e.clientX,e.clientY];hide()});addEventListener('pointermove',e=>{if(ptr)ptr=[e.clientX,e.clientY]});addEventListener('pointerup',()=>ptr=null);
+function hide(){document.getElementById('hint').style.opacity=0}
+const lerp=(a,b,t)=>a+(b-a)*t,cl=(v,a,b)=>Math.max(a,Math.min(b,v));
+const mixc=(p,q,t)=>p.map((v,i)=>lerp(v,q[i],t));
+function pick(N_,Du,Dy,s){return s<-.15?N_:s<.1?mixc(N_,Du,(s+.15)/.25):s<.35?mixc(Du,Dy,(s-.1)/.25):Dy}
+const SKY=[[28,32,66],[255,170,140],[165,210,235]],SUN=[[90,100,180],[255,150,100],[255,244,220]];
+
+let last=0,hudT=-1;
+function frame(now){
+ const dt=Math.min(.05,(now-(last||now))/1000);last=now;T+=dt;ph+=dt*.035;
+ let turn=(keys.arrowleft||keys.a?1:0)-(keys.arrowright||keys.d?1:0),climb=(keys.arrowup||keys.w?1:0)-(keys.arrowdown||keys.s?1:0);
+ if(ptr){turn=cl(-(ptr[0]-innerWidth/2)/(innerWidth*.3),-1,1);climb=cl(-(ptr[1]-innerHeight/2)/(innerHeight*.3),-1,1)}
+ P.tu=lerp(P.tu,turn,Math.min(1,dt*5));P.yaw+=P.tu*1.1*dt;
+ P.pitch=lerp(P.pitch,climb*.5,Math.min(1,dt*3));P.roll=lerp(P.roll,P.tu*.75,Math.min(1,dt*4));
+ const sp=38-P.pitch*14,cp=Math.cos(P.pitch);
+ P.x+=-Math.sin(P.yaw)*cp*sp*dt;P.z+=-Math.cos(P.yaw)*cp*sp*dt;P.y+=Math.sin(P.pitch)*sp*dt;
+ const g=ground(P.x,P.z);P.y=cl(P.y,g+4,230);
+ plane.position.set(P.x,P.y,P.z);plane.rotation.set(P.pitch,P.yaw,P.roll);prop.rotation.z=T*40;
+ sh.position.set(P.x,Math.max(g,1.3)+.6,P.z);sh.scale.setScalar(cl(1.2-(P.y-g)/120,.4,1.1));
+
+ const cx=Math.round(P.x/CELL)*CELL,cz=Math.round(P.z/CELL)*CELL;
+ if(cx!==lcx||cz!==lcz){lcx=cx;lcz=cz;rebuild(cx,cz)}
+ for(const c of clouds){const u=c.userData;c.position.set(P.x+mod(u.x-P.x+T*4+170,340)-170,u.y,P.z+mod(u.z-P.z+170,340)-170)}
+
+ const bx_=Math.sin(P.yaw),bz_=Math.cos(P.yaw);
+ const tx=P.x+bx_*15,ty=P.y+5.5-P.pitch*6,tz=P.z+bz_*15;
+ cam.position.lerp(new THREE.Vector3(tx,ty,tz),1-Math.exp(-4*dt));
+ cam.position.y=Math.max(cam.position.y,ground(cam.position.x,cam.position.z)+2);
+ cam.lookAt(P.x-bx_*10,P.y+2+P.pitch*5,P.z-bz_*10);
+
+ const s=Math.sin(ph),sky=pick(...SKY,s).map(v=>v/255),sc=pick(...SUN,s).map(v=>v/255),day=cl((s+.2)/.5,0,1);
+ scene.fog.color.setRGB(...sky);scene.background=scene.fog.color;hemi.color.setRGB(...sky);hemi.intensity=.35+.5*day;
+ sun.color.setRGB(...sc);sun.intensity=.2+.9*day;sun.position.set(Math.cos(ph)*80,Math.max(25,Math.sin(ph)*80+25),40);
+
+ for(let i=0;i<pos.count;i++)if(WM[i]){const x=WX[i],z=WZ[i],w=Math.sin(x*.3+T*1.6)*.55+Math.sin(z*.42-T*1.2+x*.1)*.45+Math.sin((x+z)*.8+T*2.4)*.2;pos.setY(i,w*1.2);const k=w>.5?.14:w<-.5?-.05:0;col.setXYZ(i,BC[i*3]+k,BC[i*3+1]+k,BC[i*3+2]+k)}
+ pos.needsUpdate=true;col.needsUpdate=true;
+ R.render(scene,cam);
+ if((T*5|0)!==hudT){hudT=T*5|0;const hr=(6+ph/(2*Math.PI)*24)%24;
+  document.getElementById('hud').innerHTML=`${String(hr|0).padStart(2,'0')}:${String((hr%1)*60|0).padStart(2,'0')}<br>alt ${Math.round(P.y)}<br>x ${Math.round(P.x)} z ${Math.round(P.z)}`}
+ requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+}
+</script>
+</body>
+</html>
